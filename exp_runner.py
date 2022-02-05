@@ -65,12 +65,12 @@ class Runner:
         self.deviation_network = SingleVarianceNetwork(**self.conf['model.variance_network'])
         self.color_network = RenderingNetwork(**self.conf['model.rendering_network'])
         
-        if torch.cuda.device_count() > 1:
-            print("Let's use", torch.cuda.device_count(), "GPUs!")
-            self.nerf_outside = nn.DataParallel(self.nerf_outside)
-            self.sdf_network = nn.DataParallel(self.sdf_network)
-            self.deviation_network = nn.DataParallel(self.deviation_network)
-            self.color_network = nn.DataParallel(self.color_network)
+        # if torch.cuda.device_count() > 1:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        self.nerf_outside = nn.DataParallel(self.nerf_outside)
+        self.sdf_network = nn.DataParallel(self.sdf_network)
+        self.deviation_network = nn.DataParallel(self.deviation_network)
+        self.color_network = nn.DataParallel(self.color_network)
         
         self.nerf_outside.to(self.device)
         self.sdf_network.to(self.device)
