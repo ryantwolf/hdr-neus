@@ -143,8 +143,10 @@ class RenderingNetwork(nn.Module):
             setattr(self, "lin" + str(l), lin)
 
         self.relu = nn.ReLU()
+        # Add the tonemapper
+        # self.tonemapper = ToneMapper()
 
-    def forward(self, points, normals, view_dirs, feature_vectors):
+    def forward(self, points, normals, view_dirs, feature_vectors, exposure_level):
         if self.embedview_fn is not None:
             view_dirs = self.embedview_fn(view_dirs)
 
@@ -169,6 +171,11 @@ class RenderingNetwork(nn.Module):
 
         if self.squeeze_out:
             x = torch.sigmoid(x)
+
+        # Calculate the gamma correction
+        # gamma = self.tonemapper(exposure_level)
+        # x = x ** gamma
+        
         return x
 
 
@@ -261,3 +268,21 @@ class SingleVarianceNetwork(nn.Module):
 
     def forward(self, x):
         return torch.ones([len(x), 1]) * torch.exp(self.variance * 10.0)
+
+class ToneMapper(nn.Module):
+    """
+    Takes the exposure time and estimates 3 gamma values for gamma correction of each channel
+    """
+    def __init__(self):
+        super(ToneMapper, self).__init__()
+        self.gamma = nn.Sequential(
+            nn.Linear(1, 10),
+            nn.ReLU(),
+            nn.Linear(10, 10),
+            nn.ReLU(),
+            nn.Linear(10, 3),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.gamma(x)

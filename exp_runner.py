@@ -106,6 +106,7 @@ class Runner:
 
             rays_o, rays_d, true_rgb, mask = data[:, :3], data[:, 3: 6], data[:, 6: 9], data[:, 9: 10]
             near, far = self.dataset.near_far_from_sphere(rays_o, rays_d)
+            exposure_level = self.dataset.exposure_levels[image_perm[self.iter_step % len(image_perm)]]
 
             background_rgb = None
             if self.use_white_bkgd:
@@ -117,7 +118,7 @@ class Runner:
                 mask = torch.ones_like(mask)
 
             mask_sum = mask.sum() + 1e-5
-            render_out = self.renderer.render(rays_o, rays_d, near, far,
+            render_out = self.renderer.render(exposure_level, rays_o, rays_d, near, far,
                                               background_rgb=background_rgb,
                                               cos_anneal_ratio=self.get_cos_anneal_ratio())
 
@@ -239,6 +240,7 @@ class Runner:
         if resolution_level < 0:
             resolution_level = self.validate_resolution_level
         rays_o, rays_d = self.dataset.gen_rays_at(idx, resolution_level=resolution_level)
+        exposure_level = self.dataset.exposure_levels[idx]
         H, W, _ = rays_o.shape
         rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
         rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
@@ -250,7 +252,8 @@ class Runner:
             near, far = self.dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
             background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
 
-            render_out = self.renderer.render(rays_o_batch,
+            render_out = self.renderer.render(exposure_level, 
+                                              rays_o_batch,
                                               rays_d_batch,
                                               near,
                                               far,
@@ -305,13 +308,15 @@ class Runner:
         H, W, _ = rays_o.shape
         rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
         rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
+        exposure_level = self.dataset.exposure_levels[idx_0]
 
         out_rgb_fine = []
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
             near, far = self.dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
             background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
 
-            render_out = self.renderer.render(rays_o_batch,
+            render_out = self.renderer.render(exposure_level,
+                                              rays_o_batch,
                                               rays_d_batch,
                                               near,
                                               far,

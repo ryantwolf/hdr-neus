@@ -7,6 +7,7 @@ from glob import glob
 from icecream import ic
 from scipy.spatial.transform import Rotation as Rot
 from scipy.spatial.transform import Slerp
+import json
 
 
 # This function is borrowed from IDR: https://github.com/lioryariv/idr
@@ -48,6 +49,8 @@ class Dataset:
         self.camera_outside_sphere = conf.get_bool('camera_outside_sphere', default=True)
         self.scale_mat_scale = conf.get_float('scale_mat_scale', default=1.1)
 
+        # with open(os.path.join(self.data_dir, self.render_cameras_name), 'r') as f:
+        #     camera_dict = json.load(f)
         camera_dict = np.load(os.path.join(self.data_dir, self.render_cameras_name))
         self.camera_dict = camera_dict
         self.images_lis = sorted(glob(os.path.join(self.data_dir, 'image/*.png')))
@@ -55,6 +58,11 @@ class Dataset:
         self.images_np = np.stack([cv.imread(im_name) for im_name in self.images_lis]) / 256.0
         self.masks_lis = sorted(glob(os.path.join(self.data_dir, 'mask/*.png')))
         self.masks_np = np.stack([cv.imread(im_name) for im_name in self.masks_lis]) / 256.0
+        # Read the exposure levels for each image
+        self.exposure_levels = np.load(os.path.join(self.data_dir, 'exposure_levels.npy'))
+        self.exposure_levels = torch.from_numpy(self.exposure_levels).float().to(self.device)
+        # Correc the shape of the exposure levels
+        self.exposure_levels = self.exposure_levels.unsqueeze(1)
 
         # world_mat is a projection matrix from world to image
         self.world_mats_np = [camera_dict['world_mat_%d' % idx].astype(np.float32) for idx in range(self.n_images)]
@@ -70,6 +78,8 @@ class Dataset:
         for scale_mat, world_mat in zip(self.scale_mats_np, self.world_mats_np):
             P = world_mat @ scale_mat
             P = P[:3, :4]
+        # for image_name in self.images_lis:
+            # P = np.array(camera_dict[image_name.split('\\')[-1].split('.')[0][:5]])
             intrinsics, pose = load_K_Rt_from_P(None, P)
             self.intrinsics_all.append(torch.from_numpy(intrinsics).float())
             self.pose_all.append(torch.from_numpy(pose).float())
@@ -89,6 +99,9 @@ class Dataset:
         object_scale_mat = np.load(os.path.join(self.data_dir, self.object_cameras_name))['scale_mat_0']
         object_bbox_min = np.linalg.inv(self.scale_mats_np[0]) @ object_scale_mat @ object_bbox_min[:, None]
         object_bbox_max = np.linalg.inv(self.scale_mats_np[0]) @ object_scale_mat @ object_bbox_max[:, None]
+        # object_scale_mat = np.eye(4)
+        # object_bbox_min = np.linalg.inv(object_scale_mat) @ object_bbox_min[:, None]
+        # object_bbox_max = np.linalg.inv(object_scale_mat) @ object_bbox_max[:, None]
         self.object_bbox_min = object_bbox_min[:3, 0]
         self.object_bbox_max = object_bbox_max[:3, 0]
 
@@ -168,4 +181,3 @@ class Dataset:
     def image_at(self, idx, resolution_level):
         img = cv.imread(self.images_lis[idx])
         return (cv.resize(img, (self.W // resolution_level, self.H // resolution_level))).clip(0, 255)
-
