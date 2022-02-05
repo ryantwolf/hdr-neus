@@ -20,7 +20,7 @@ from models.renderer import NeuSRenderer
 
 class Runner:
     def __init__(self, conf_path, mode='train', case='CASE_NAME', is_continue=False):
-        self.device = torch.device('cuda')
+        self.device = torch.device('cuda:0')
 
         # Configuration
         self.conf_path = conf_path
@@ -60,10 +60,10 @@ class Runner:
 
         # Networks
         params_to_train = []
-        self.nerf_outside = NeRF(**self.conf['model.nerf'])
-        self.sdf_network = SDFNetwork(**self.conf['model.sdf_network'])
-        self.deviation_network = SingleVarianceNetwork(**self.conf['model.variance_network'])
-        self.color_network = RenderingNetwork(**self.conf['model.rendering_network'])
+        self.nerf_outside = NeRF(**self.conf['model.nerf']).cuda()
+        self.sdf_network = SDFNetwork(**self.conf['model.sdf_network']).cuda()
+        self.deviation_network = SingleVarianceNetwork(**self.conf['model.variance_network']).cuda()
+        self.color_network = RenderingNetwork(**self.conf['model.rendering_network']).cuda()
         
         # if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -72,10 +72,10 @@ class Runner:
         self.deviation_network = nn.DataParallel(self.deviation_network)
         self.color_network = nn.DataParallel(self.color_network)
         
-        self.nerf_outside.to(self.device)
-        self.sdf_network.to(self.device)
-        self.deviation_network.to(self.device)
-        self.color_network.to(self.device)
+        # self.nerf_outside.to(self.device)
+        # self.sdf_network.to(self.device)
+        # self.deviation_network.to(self.device)
+        # self.color_network.to(self.device)
 
         params_to_train += list(self.nerf_outside.parameters())
         params_to_train += list(self.sdf_network.parameters())
