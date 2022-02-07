@@ -314,7 +314,7 @@ class Runner:
                                         '{:0>8d}_{}_{}.png'.format(self.iter_step, i, idx)),
                            normal_img[..., i])
 
-    def render_novel_image(self, idx_0, idx_1, ratio, resolution_level):
+    def render_novel_image(self, idx_0, idx_1, exposure_0, exposure_1, ratio, resolution_level):
         """
         Interpolate view between two cameras.
         """
@@ -322,7 +322,7 @@ class Runner:
         H, W, _ = rays_o.shape
         rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
         rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
-        exposure_level = self.dataset.exposure_levels[idx_0]
+        exposure_level = exposure_0 * (1 - ratio) + exposure_1 * ratio
 
         out_rgb_fine = []
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
@@ -360,15 +360,17 @@ class Runner:
 
         logging.info('End')
 
-    def interpolate_view(self, img_idx_0, img_idx_1):
+    def interpolate_view(self, img_idx_0, img_idx_1, exposure_0, exposure_1):
         images = []
         n_frames = 60
         for i in range(n_frames):
             print(i)
             images.append(self.render_novel_image(img_idx_0,
                                                   img_idx_1,
+                                                  exposure_0,
+                                                  exposure_1,
                                                   np.sin(((i / n_frames) - 0.5) * np.pi) * 0.5 + 0.5,
-                          resolution_level=4))
+                          resolution_level=1))
         for i in range(n_frames):
             images.append(images[n_frames - i - 1])
 
@@ -412,7 +414,9 @@ if __name__ == '__main__':
     elif args.mode == 'validate_mesh':
         runner.validate_mesh(world_space=True, resolution=512, threshold=args.mcube_threshold)
     elif args.mode.startswith('interpolate'):  # Interpolate views given two image indices
-        _, img_idx_0, img_idx_1 = args.mode.split('_')
+        _, img_idx_0, img_idx_1, exposure_0, exposure_1 = args.mode.split('_')
         img_idx_0 = int(img_idx_0)
         img_idx_1 = int(img_idx_1)
-        runner.interpolate_view(img_idx_0, img_idx_1)
+        exposure_0 = float(exposure_0)
+        exposure_1 = float(exposure_1)
+        runner.interpolate_view(img_idx_0, img_idx_1, exposure_0, exposure_1)

@@ -123,7 +123,8 @@ class RenderingNetwork(nn.Module):
 
         self.mode = mode
         self.squeeze_out = squeeze_out
-        dims = [d_in + d_feature] + [d_hidden for _ in range(n_layers)] + [d_out]
+        d_exposure = 1
+        dims = [d_in + d_feature + d_exposure] + [d_hidden for _ in range(n_layers)] + [d_out]
 
         self.embedview_fn = None
         if multires_view > 0:
@@ -146,14 +147,14 @@ class RenderingNetwork(nn.Module):
         # Add the tonemapper
         # self.tonemapper = ToneMapper()
 
-    def forward(self, points, normals, view_dirs, feature_vectors, exposure_level):
+    def forward(self, points, normals, view_dirs, feature_vectors, exposure_levels):
         if self.embedview_fn is not None:
             view_dirs = self.embedview_fn(view_dirs)
 
         rendering_input = None
 
         if self.mode == 'idr':
-            rendering_input = torch.cat([points, view_dirs, normals, feature_vectors], dim=-1)
+            rendering_input = torch.cat([points, view_dirs, normals, feature_vectors, exposure_levels], dim=-1)
         elif self.mode == 'no_view_dir':
             rendering_input = torch.cat([points, normals, feature_vectors], dim=-1)
         elif self.mode == 'no_normal':
