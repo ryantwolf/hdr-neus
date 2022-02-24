@@ -75,6 +75,7 @@ class NeuSRenderer:
                  sdf_network,
                  deviation_network,
                  color_network,
+                 gamma_network,
                  n_samples,
                  n_importance,
                  n_outside,
@@ -84,6 +85,7 @@ class NeuSRenderer:
         self.sdf_network = sdf_network
         self.deviation_network = deviation_network
         self.color_network = color_network
+        self.gamma_network = gamma_network
         self.n_samples = n_samples
         self.n_importance = n_importance
         self.n_outside = n_outside
@@ -267,6 +269,10 @@ class NeuSRenderer:
         if background_rgb is not None:    # Fixed background, usually black
             color = color + background_rgb * (1.0 - weights_sum)
 
+        gamma = self.gamma_network(color)
+        color = color * torch.pow(2, exposure_level)
+        color = torch.pow(color, gamma)
+
         # Eikonal loss
         gradient_error = (torch.linalg.norm(gradients.reshape(batch_size, n_samples, 3), ord=2,
                                             dim=-1) - 1.0) ** 2
@@ -278,6 +284,7 @@ class NeuSRenderer:
             'dists': dists,
             'gradients': gradients.reshape(batch_size, n_samples, 3),
             's_val': 1.0 / inv_s,
+            'gamma': gamma,
             'mid_z_vals': mid_z_vals,
             'weights': weights,
             'cdf': c.reshape(batch_size, n_samples),
@@ -367,10 +374,12 @@ class NeuSRenderer:
         weights_sum = weights.sum(dim=-1, keepdim=True)
         gradients = ret_fine['gradients']
         s_val = ret_fine['s_val'].reshape(batch_size, n_samples).mean(dim=-1, keepdim=True)
+        gamma = ret_fine['gamma'].mean(dim=0)
 
         return {
             'color_fine': color_fine,
             's_val': s_val,
+            'gamma': gamma,
             'cdf_fine': ret_fine['cdf'],
             'weight_sum': weights_sum,
             'weight_max': torch.max(weights, dim=-1, keepdim=True)[0],

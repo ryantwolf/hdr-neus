@@ -123,8 +123,9 @@ class RenderingNetwork(nn.Module):
 
         self.mode = mode
         self.squeeze_out = squeeze_out
-        d_exposure = 1
-        dims = [d_in + d_feature + d_exposure] + [d_hidden for _ in range(n_layers)] + [d_out]
+        # d_exposure = 1
+        # dims = [d_in + d_feature + d_exposure] + [d_hidden for _ in range(n_layers)] + [d_out]
+        dims = [d_in + d_feature] + [d_hidden for _ in range(n_layers)] + [d_out]
 
         self.embedview_fn = None
         if multires_view > 0:
@@ -145,6 +146,7 @@ class RenderingNetwork(nn.Module):
 
         self.relu = nn.ReLU()
         # Add the tonemapper
+        # self.register_parameter('gamma', nn.Parameter(torch.tensor([1.0, 1.0, 1.0])))
         # self.tonemapper = ToneMapper()
 
     def forward(self, points, normals, view_dirs, feature_vectors, exposure_levels):
@@ -154,7 +156,7 @@ class RenderingNetwork(nn.Module):
         rendering_input = None
 
         if self.mode == 'idr':
-            rendering_input = torch.cat([points, view_dirs, normals, feature_vectors, exposure_levels], dim=-1)
+            rendering_input = torch.cat([points, view_dirs, normals, feature_vectors], dim=-1)
         elif self.mode == 'no_view_dir':
             rendering_input = torch.cat([points, normals, feature_vectors], dim=-1)
         elif self.mode == 'no_normal':
@@ -175,7 +177,6 @@ class RenderingNetwork(nn.Module):
 
         # Calculate the gamma correction
         # gamma = self.tonemapper(exposure_level)
-        # x = x ** gamma
         
         return x
 
@@ -269,6 +270,14 @@ class SingleVarianceNetwork(nn.Module):
 
     def forward(self, x):
         return torch.ones([len(x), 1]) * torch.exp(self.variance * 10.0)
+
+class GammaNetwork(nn.Module):
+    def __init__(self, init_val):
+        super(GammaNetwork, self).__init__()
+        self.register_parameter('gamma', nn.Parameter(torch.tensor(init_val)))
+
+    def forward(self, x):
+        return torch.ones(x.shape) * self.gamma
 
 class ToneMapper(nn.Module):
     """

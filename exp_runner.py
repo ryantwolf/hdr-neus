@@ -14,7 +14,7 @@ from icecream import ic
 from tqdm import tqdm
 from pyhocon import ConfigFactory
 from models.dataset import Dataset
-from models.fields import RenderingNetwork, SDFNetwork, SingleVarianceNetwork, NeRF
+from models.fields import RenderingNetwork, SDFNetwork, SingleVarianceNetwork, NeRF, GammaNetwork
 from models.renderer import NeuSRenderer
 
 
@@ -64,6 +64,7 @@ class Runner:
         self.sdf_network = SDFNetwork(**self.conf['model.sdf_network']).cuda()
         self.deviation_network = SingleVarianceNetwork(**self.conf['model.variance_network']).cuda()
         self.color_network = RenderingNetwork(**self.conf['model.rendering_network']).cuda()
+        self.gamma_network = GammaNetwork(**self.conf['model.gamma_network']).cuda()
         
         # if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -88,6 +89,7 @@ class Runner:
                                      self.sdf_network,
                                      self.deviation_network,
                                      self.color_network,
+                                     self.gamma_network,
                                      **self.conf['model.neus_renderer'])
 
         # Load checkpoint
@@ -138,6 +140,7 @@ class Runner:
 
             color_fine = render_out['color_fine']
             s_val = render_out['s_val']
+            gamma = render_out['gamma']
             cdf_fine = render_out['cdf_fine']
             gradient_error = render_out['gradient_error']
             weight_max = render_out['weight_max']
@@ -166,6 +169,7 @@ class Runner:
             self.writer.add_scalar('Loss/color_loss', color_fine_loss, self.iter_step)
             self.writer.add_scalar('Loss/eikonal_loss', eikonal_loss, self.iter_step)
             self.writer.add_scalar('Statistics/s_val', s_val.mean(), self.iter_step)
+            self.writer.add_scalar('Statistics/gamma', gamma.mean(), self.iter_step)
             self.writer.add_scalar('Statistics/cdf', (cdf_fine[:, :1] * mask).sum() / mask_sum, self.iter_step)
             self.writer.add_scalar('Statistics/weight_max', (weight_max * mask).sum() / mask_sum, self.iter_step)
             self.writer.add_scalar('Statistics/psnr', psnr, self.iter_step)
@@ -322,7 +326,7 @@ class Runner:
         H, W, _ = rays_o.shape
         rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
         rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
-        exposure_level = exposure_0 * (1 - ratio) + exposure_1 * ratio
+        exposure_level = torch.tensor(exposure_0 * (1 - ratio) + exposure_1 * ratio)
 
         out_rgb_fine = []
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
