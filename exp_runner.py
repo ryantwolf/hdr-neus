@@ -322,7 +322,7 @@ class Runner:
         H, W, _ = rays_o.shape
         rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
         rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
-        exposure_level = exposure_0 * (1 - ratio) + exposure_1 * ratio
+        exposure_level = torch.tensor(exposure_0 * (1 - ratio) + exposure_1 * ratio, dtype=torch.float32)
 
         out_rgb_fine = []
         for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
