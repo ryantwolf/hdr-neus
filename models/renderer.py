@@ -265,7 +265,7 @@ class NeuSRenderer:
         weights = alpha * torch.cumprod(torch.cat([torch.ones([batch_size, 1]), 1. - alpha + 1e-7], -1), -1)[:, :-1]
         weights_sum = weights.sum(dim=-1, keepdim=True)
 
-        gamma = self.gamma_network(color)
+        gamma = self.gamma_network(sampled_color)
         # gamma = torch.tensor([0.5])
         sampled_color = sampled_color * torch.pow(2, exposure_level)
         sampled_color = torch.pow(sampled_color, gamma)
