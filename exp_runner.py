@@ -19,7 +19,7 @@ from models.renderer import NeuSRenderer
 
 
 class Runner:
-    def __init__(self, conf_path, mode='train', case='CASE_NAME', is_continue=False):
+    def __init__(self, conf_path, mode='train', case='CASE_NAME', test='TEST_NAME', is_continue=False):
         self.device = torch.device('cuda:0')
 
         # Configuration
@@ -27,6 +27,7 @@ class Runner:
         f = open(self.conf_path)
         conf_text = f.read()
         conf_text = conf_text.replace('CASE_NAME', case)
+        conf_text = conf_text.replace('TEST_NAME', test)
         f.close()
 
         self.conf = ConfigFactory.parse_string(conf_text)
@@ -392,6 +393,49 @@ class Runner:
 
         writer.release()
 
+    def run_metrics(self, test_name, resolution_level=1):
+        # Load the test dataset
+        self.conf['test.data_dir'] = self.conf['test.data_dir'].replace('TEST_NAME', test_name)
+        self.test_dataset = Dataset(self.conf['test'])
+        os.makedirs(os.path.join(self.base_exp_dir, 'test'), exist_ok=True)
+
+        psnr_values = np.zeros((self.test_dataset.n_images,))
+        print(self.gamma_network.gamma)
+        # ssim_values = np.zeros((self.test_dataset.n_images,))
+
+        for idx in tqdm(range(self.test_dataset.n_images)):
+            rays_o, rays_d = self.test_dataset.gen_rays_between(idx, idx, 0, resolution_level=resolution_level)
+            H, W, _ = rays_o.shape
+            rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
+            rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
+            exposure_level = self.test_dataset.exposure_levels[idx]
+
+            out_rgb_fine = []
+            for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
+                near, far = self.dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
+                background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
+
+                render_out = self.renderer.render(exposure_level,
+                                                rays_o_batch,
+                                                rays_d_batch,
+                                                near,
+                                                far,
+                                                cos_anneal_ratio=self.get_cos_anneal_ratio(),
+                                                background_rgb=background_rgb)
+
+                out_rgb_fine.append(render_out['color_fine'].detach().cpu().numpy())
+
+                del render_out
+
+            img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3]) * 256).clip(0, 255).astype(np.uint8)
+
+            psnr_values[idx] = 20.0 * np.log10(1.0 / np.sqrt(((img_fine - self.test_dataset.image_at(idx, resolution_level=resolution_level))**2).sum() / (H * W * 3.0)))
+            cv.imwrite(os.path.join(self.base_exp_dir, 'test', '{:0>8d}.png'.format(idx)), img_fine)
+        
+        # Write the psnr values to a file
+        with open(os.path.join(self.base_exp_dir, 'test', 'psnr.txt'), 'w') as f:
+            f.write('\n'.join(['{:0>8d} {:.4f}'.format(idx, psnr_values[idx]) for idx in range(self.test_dataset.n_images)]))
+
 
 if __name__ == '__main__':
     print('Hello Wooden')
@@ -408,11 +452,12 @@ if __name__ == '__main__':
     parser.add_argument('--is_continue', default=False, action="store_true")
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--case', type=str, default='')
+    parser.add_argument('--test_name', type=str, default='')
 
     args = parser.parse_args()
 
     torch.cuda.set_device(args.gpu)
-    runner = Runner(args.conf, args.mode, args.case, args.is_continue)
+    runner = Runner(args.conf, args.mode, args.case, args.test_name, args.is_continue)
 
     if args.mode == 'train':
         runner.train()
@@ -425,3 +470,5 @@ if __name__ == '__main__':
         exposure_0 = float(exposure_0)
         exposure_1 = float(exposure_1)
         runner.interpolate_view(img_idx_0, img_idx_1, exposure_0, exposure_1)
+    elif args.mode == 'test':
+        runner.run_metrics(args.test_name)
