@@ -233,6 +233,7 @@ class Runner:
         self.sdf_network.load_state_dict(checkpoint['sdf_network_fine'])
         self.deviation_network.load_state_dict(checkpoint['variance_network_fine'])
         self.color_network.load_state_dict(checkpoint['color_network_fine'])
+        self.gamma_network.load_state_dict(checkpoint['gamma_network'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.iter_step = checkpoint['iter_step']
 
@@ -244,6 +245,7 @@ class Runner:
             'sdf_network_fine': self.sdf_network.state_dict(),
             'variance_network_fine': self.deviation_network.state_dict(),
             'color_network_fine': self.color_network.state_dict(),
+            'gamma_network': self.gamma_network.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'iter_step': self.iter_step,
         }

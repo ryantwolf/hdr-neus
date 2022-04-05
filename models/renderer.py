@@ -227,6 +227,10 @@ class NeuSRenderer:
         # Create batches of exposure levels
         exposure_levels = exposure_level.repeat(pts.shape[0], 1)
         sampled_color = color_network(pts, gradients, dirs, feature_vector, exposure_levels).reshape(batch_size, n_samples, 3)
+        gamma = self.gamma_network(sampled_color)
+        # gamma = torch.tensor([0.5])
+        sampled_color = sampled_color * torch.pow(2, exposure_level)
+        sampled_color = torch.pow(sampled_color, gamma)
 
         inv_s = deviation_network(torch.zeros([1, 3]))[:, :1].clip(1e-6, 1e6)           # Single parameter
         inv_s = inv_s.expand(batch_size * n_samples, 1)
@@ -265,10 +269,6 @@ class NeuSRenderer:
         weights = alpha * torch.cumprod(torch.cat([torch.ones([batch_size, 1]), 1. - alpha + 1e-7], -1), -1)[:, :-1]
         weights_sum = weights.sum(dim=-1, keepdim=True)
 
-        gamma = self.gamma_network(sampled_color)
-        # gamma = torch.tensor([0.5])
-        sampled_color = sampled_color * torch.pow(2, exposure_level)
-        sampled_color = torch.pow(sampled_color, gamma)
         color = (sampled_color * weights[:, :, None]).sum(dim=1)
         if background_rgb is not None:    # Fixed background, usually black
             color = color + background_rgb * (1.0 - weights_sum)
@@ -374,12 +374,11 @@ class NeuSRenderer:
         weights_sum = weights.sum(dim=-1, keepdim=True)
         gradients = ret_fine['gradients']
         s_val = ret_fine['s_val'].reshape(batch_size, n_samples).mean(dim=-1, keepdim=True)
-        gamma = ret_fine['gamma'].mean(dim=0)
 
         return {
             'color_fine': color_fine,
             's_val': s_val,
-            'gamma': gamma,
+            'gamma': ret_fine['gamma'],
             'cdf_fine': ret_fine['cdf'],
             'weight_sum': weights_sum,
             'weight_max': torch.max(weights, dim=-1, keepdim=True)[0],
