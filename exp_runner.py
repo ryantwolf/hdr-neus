@@ -16,6 +16,7 @@ from pyhocon import ConfigFactory
 from models.dataset import Dataset
 from models.fields import RenderingNetwork, SDFNetwork, SingleVarianceNetwork, NeRF
 from models.renderer import NeuSRenderer
+from skimage.metrics import structural_similarity
 
 class Runner:
     def __init__(self, conf_path, mode='train', case='CASE_NAME', test='TEST_NAME', is_continue=False):
@@ -26,7 +27,7 @@ class Runner:
         f = open(self.conf_path)
         conf_text = f.read()
         conf_text = conf_text.replace('CASE_NAME', case)
-        conf_text = conf_text.replace('TEST_NAME', test)
+        # conf_text = conf_text.replace('TEST_NAME', test)
         f.close()
 
         self.conf = ConfigFactory.parse_string(conf_text)
@@ -387,83 +388,63 @@ class Runner:
 
         writer.release()
     
-    def run_metrics(self, test_name, resolution_level=1):
-        # Load the test dataset
-        self.conf['test.data_dir'] = self.conf['test.data_dir'].replace('TEST_NAME', test_name)
-        self.test_dataset = Dataset(self.conf['test'])
-        os.makedirs(os.path.join(self.base_exp_dir, 'test', test_name), exist_ok=True)
-
-        psnr_values = np.zeros((self.test_dataset.n_images,))
-        ssim_values = np.zeros((self.test_dataset.n_images,))
-        lpips_values = np.zeros((self.test_dataset.n_images,))
-
+    def run_metrics(self, test_names, resolution_level=1):
+        org_test = self.conf['test.data_dir']
         import lpips
         lpips_fn = lpips.LPIPS(net='alex')
 
-        for idx in tqdm(range(self.test_dataset.n_images)):
-            rays_o, rays_d = self.test_dataset.gen_rays_between(idx, idx, 0, resolution_level=resolution_level)
-            H, W, _ = rays_o.shape
-            rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
-            rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
-            exposure_level = self.test_dataset.exposure_levels[idx]
+        for test_name in test_names:
+            # Load the test dataset
+            self.conf['test']['data_dir'] = org_test.replace('TEST_NAME', test_name)
+            self.test_dataset = Dataset(self.conf['test'])
+            os.makedirs(os.path.join(self.base_exp_dir, 'test', test_name), exist_ok=True)
 
-            out_rgb_fine = []
-            for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
-                near, far = self.test_dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
-                background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
-
-                render_out = self.renderer.render(exposure_level,
-                                                rays_o_batch,
-                                                rays_d_batch,
-                                                near,
-                                                far,
-                                                cos_anneal_ratio=self.get_cos_anneal_ratio(),
-                                                background_rgb=background_rgb)
-
-                out_rgb_fine.append(render_out['color_fine'].detach().cpu().numpy())
-
-                del render_out
-
-            # img_fine = (np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3]) * 256).clip(0, 255).astype(np.uint8)
-            img_fine = np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])
-            img_ref = np.asarray(self.test_dataset.images[idx])
-
-            psnr_values[idx] = 20.0 * np.log10(1.0 / np.sqrt(((img_fine - img_ref)**2).sum() / (H * W * 3.0)))
-            ssim_values[idx] = ssim_eval(img_fine, img_ref)
-            mod_fine = torch.tensor(np.expand_dims(np.moveaxis(img_fine, [0, 1], [-2, -1]), 0))
-            mod_ref = torch.tensor(np.expand_dims(np.moveaxis(img_ref, [0, 1], [-2, -1]), 0))
-            lpips_values[idx] = lpips_fn(mod_fine, mod_ref)
-            cv.imwrite(os.path.join(self.base_exp_dir, 'test', test_name, '{:0>8d}.png'.format(idx)), (img_fine * 256).clip(0, 255).astype(np.uint8))
-        
-        # Write the psnr values to a file
-        with open(os.path.join(self.base_exp_dir, 'test', test_name, 'metrics.csv'), 'w') as f:
-            f.write('psnr,ssim,lpips\n')
-            for psnr, ssim, lpips in zip(psnr_values, ssim_values, lpips_values):
-                f.write('{},{},{}\n'.format(psnr, ssim, lpips))
-            # f.write('\n'.join(['{:0>8d} {:.4f}'.format(idx, psnr_values[idx]) for idx in range(self.test_dataset.n_images)]))
+            psnr_values = np.zeros((self.test_dataset.n_images,))
+            ssim_values = np.zeros((self.test_dataset.n_images,))
+            lpips_values = np.zeros((self.test_dataset.n_images,))
 
 
-def ssim_eval(img1, img2):
-    C1 = (0.01 * 255)**2
-    C2 = (0.03 * 255)**2
+            for idx in tqdm(range(self.test_dataset.n_images)):
+                rays_o, rays_d = self.test_dataset.gen_rays_between(idx, idx, 0, resolution_level=resolution_level)
+                H, W, _ = rays_o.shape
+                rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
+                rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
+                exposure_level = self.test_dataset.exposure_levels[idx]
 
-    img1 = img1.astype(np.float64)
-    img2 = img2.astype(np.float64)
-    kernel = cv.getGaussianKernel(11, 1.5)
-    window = np.outer(kernel, kernel.transpose())
+                out_rgb_fine = []
+                for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
+                    near, far = self.test_dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
+                    background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
 
-    mu1 = cv.filter2D(img1, -1, window)[5:-5, 5:-5]  # valid
-    mu2 = cv.filter2D(img2, -1, window)[5:-5, 5:-5]
-    mu1_sq = mu1**2
-    mu2_sq = mu2**2
-    mu1_mu2 = mu1 * mu2
-    sigma1_sq = cv.filter2D(img1**2, -1, window)[5:-5, 5:-5] - mu1_sq
-    sigma2_sq = cv.filter2D(img2**2, -1, window)[5:-5, 5:-5] - mu2_sq
-    sigma12 = cv.filter2D(img1 * img2, -1, window)[5:-5, 5:-5] - mu1_mu2
+                    render_out = self.renderer.render(exposure_level,
+                                                    rays_o_batch,
+                                                    rays_d_batch,
+                                                    near,
+                                                    far,
+                                                    cos_anneal_ratio=self.get_cos_anneal_ratio(),
+                                                    background_rgb=background_rgb)
 
-    ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) *
-                                                            (sigma1_sq + sigma2_sq + C2))
-    return ssim_map.mean()
+                    out_rgb_fine.append(render_out['color_fine'].detach().cpu().numpy())
+
+                    del render_out
+
+                img_fine = np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])
+                img_ref = np.asarray(self.test_dataset.images[idx])
+
+                psnr_values[idx] = 20.0 * np.log10(1.0 / np.sqrt(((img_fine - img_ref)**2).sum() / (H * W * 3.0)))
+                ssim_values[idx] = structural_similarity(img_fine, img_ref, multichannel=True, data_range=img_fine.max() - img_fine.min())
+                mod_fine = torch.tensor(np.expand_dims(np.moveaxis(img_fine, [0, 1], [-2, -1]), 0))
+                mod_ref = torch.tensor(np.expand_dims(np.moveaxis(img_ref, [0, 1], [-2, -1]), 0))
+                lpips_values[idx] = lpips_fn(mod_fine, mod_ref)
+                cv.imwrite(os.path.join(self.base_exp_dir, 'test', test_name, '{:0>8d}.png'.format(idx)), (img_fine * 256).clip(0, 255).astype(np.uint8))
+            
+            # Write the psnr values to a file
+            with open(os.path.join(self.base_exp_dir, 'test', test_name, 'metrics.csv'), 'w') as f:
+                f.write('psnr,ssim,lpips\n')
+                for psnr, ssim, l in zip(psnr_values, ssim_values, lpips_values):
+                    f.write('{},{},{}\n'.format(psnr, ssim, l))
+                # f.write('\n'.join(['{:0>8d} {:.4f}'.format(idx, psnr_values[idx]) for idx in range(self.test_dataset.n_images)]))
+
 
 if __name__ == '__main__':
     print('Hello Wooden')
@@ -480,12 +461,12 @@ if __name__ == '__main__':
     parser.add_argument('--is_continue', default=False, action="store_true")
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--case', type=str, default='')
-    parser.add_argument('--test_name', type=str, default='')
+    parser.add_argument('--test_names', nargs='+', default=[])
 
     args = parser.parse_args()
 
     torch.cuda.set_device(args.gpu)
-    runner = Runner(args.conf, args.mode, args.case, args.test_name, args.is_continue)
+    runner = Runner(args.conf, args.mode, args.case, args.test_names, args.is_continue)
 
     if args.mode == 'train':
         runner.train()
@@ -499,4 +480,8 @@ if __name__ == '__main__':
         exposure_1 = float(exposure_1)
         runner.interpolate_view(img_idx_0, img_idx_1, exposure_0, exposure_1)
     elif args.mode == 'test':
-        runner.run_metrics(args.test_name)
+        runner.run_metrics(args.test_names)
+    elif args.mode == 'pipeline':
+        runner.train()
+        runner.validate_mesh(world_space=True, resolution=512, threshold=args.mcube_threshold)
+        runner.run_metrics(args.test_names)
