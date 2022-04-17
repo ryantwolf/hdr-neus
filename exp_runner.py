@@ -1,4 +1,5 @@
 import os
+os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 import random
 import time
 import logging
@@ -451,7 +452,43 @@ class Runner:
                 for psnr, ssim, l in zip(psnr_values, ssim_values, lpips_values):
                     f.write('{},{},{}\n'.format(psnr, ssim, l))
                 # f.write('\n'.join(['{:0>8d} {:.4f}'.format(idx, psnr_values[idx]) for idx in range(self.test_dataset.n_images)]))
+    
+    def render_hdr(self, test_names, resolution_level=1):
+        org_test = self.conf['test.data_dir']
 
+        for test_name in test_names:
+            # Load the test dataset
+            self.conf['test']['data_dir'] = org_test.replace('TEST_NAME', test_name)
+            self.test_dataset = Dataset(self.conf['test'])
+            os.makedirs(os.path.join(self.base_exp_dir, 'test', test_name), exist_ok=True)
+
+            for idx in tqdm(range(self.test_dataset.n_images)):
+                rays_o, rays_d = self.test_dataset.gen_rays_between(idx, idx, 0, resolution_level=resolution_level)
+                H, W, _ = rays_o.shape
+                rays_o = rays_o.reshape(-1, 3).split(self.batch_size)
+                rays_d = rays_d.reshape(-1, 3).split(self.batch_size)
+                exposure_level = self.test_dataset.exposure_levels[idx]
+
+                out_rgb_fine = []
+                for rays_o_batch, rays_d_batch in zip(rays_o, rays_d):
+                    near, far = self.test_dataset.near_far_from_sphere(rays_o_batch, rays_d_batch)
+                    background_rgb = torch.ones([1, 3]) if self.use_white_bkgd else None
+
+                    render_out = self.renderer.render(exposure_level,
+                                                    rays_o_batch,
+                                                    rays_d_batch,
+                                                    near,
+                                                    far,
+                                                    cos_anneal_ratio=self.get_cos_anneal_ratio(),
+                                                    background_rgb=background_rgb,
+                                                    hdr=True)
+
+                    out_rgb_fine.append(render_out['color_fine'].detach().cpu().numpy())
+
+                    del render_out
+
+                img_fine = np.concatenate(out_rgb_fine, axis=0).reshape([H, W, 3])
+                cv.imwrite(os.path.join(self.base_exp_dir, 'test', test_name, '{:0>8d}.exr'.format(idx)), img_fine)
 
 if __name__ == '__main__':
     print('Hello Wooden')
@@ -492,3 +529,5 @@ if __name__ == '__main__':
         runner.train()
         runner.validate_mesh(world_space=True, resolution=512, threshold=args.mcube_threshold)
         runner.run_metrics(args.test_names)
+    elif args.mode == 'render_hdr':
+        runner.render_hdr(args.test_names)

@@ -204,7 +204,8 @@ class NeuSRenderer:
                     background_alpha=None,
                     background_sampled_color=None,
                     background_rgb=None,
-                    cos_anneal_ratio=0.0):
+                    cos_anneal_ratio=0.0,
+                    hdr=False):
         batch_size, n_samples = z_vals.shape
 
         # Section length
@@ -229,8 +230,9 @@ class NeuSRenderer:
         sampled_color = color_network(pts, gradients, dirs, feature_vector, exposure_levels).reshape(batch_size, n_samples, 3)
         gamma = self.gamma_network(sampled_color)
         # gamma = torch.tensor([0.5])
-        sampled_color = sampled_color * torch.pow(2, exposure_level)
-        sampled_color = torch.pow(sampled_color, gamma)
+        if not hdr:
+            sampled_color = torch.clip(sampled_color * torch.pow(2, exposure_level), 1e-6, 1)
+            sampled_color = torch.pow(sampled_color, gamma)
 
         inv_s = deviation_network(torch.zeros([1, 3]))[:, :1].clip(1e-6, 1e6)           # Single parameter
         inv_s = inv_s.expand(batch_size * n_samples, 1)
@@ -292,7 +294,7 @@ class NeuSRenderer:
             'inside_sphere': inside_sphere
         }
 
-    def render(self, exposure_level, rays_o, rays_d, near, far, perturb_overwrite=-1, background_rgb=None, cos_anneal_ratio=0.0):
+    def render(self, exposure_level, rays_o, rays_d, near, far, perturb_overwrite=-1, background_rgb=None, cos_anneal_ratio=0.0, hdr=False):
         batch_size = len(rays_o)
         sample_dist = 2.0 / self.n_samples   # Assuming the region of interest is a unit sphere
         z_vals = torch.linspace(0.0, 1.0, self.n_samples)
@@ -367,7 +369,8 @@ class NeuSRenderer:
                                     background_rgb=background_rgb,
                                     background_alpha=background_alpha,
                                     background_sampled_color=background_sampled_color,
-                                    cos_anneal_ratio=cos_anneal_ratio)
+                                    cos_anneal_ratio=cos_anneal_ratio,
+                                    hdr=hdr)
 
         color_fine = ret_fine['color']
         weights = ret_fine['weights']
